@@ -11,6 +11,7 @@
 from google.adk.agents import LlmAgent
 from google.adk.apps import App
 from google.adk.apps import ResumabilityConfig
+from google.adk.models.google_llm import Gemini
 from google.adk.tools import FunctionTool
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
@@ -20,6 +21,20 @@ from . import regulamento
 from . import tools
 
 _GERACAO = types.GenerateContentConfig(temperature=0.1)
+
+# Picos de demanda da Gemini API devolvem 503/429 com frequência; sem
+# retentativa, um pico derrubaria a mensagem inteira com erro 500.
+_RETENTATIVA = types.HttpRetryOptions(
+    attempts=6,
+    initial_delay=2,
+    max_delay=30,
+    http_status_codes=[408, 429, 500, 502, 503, 504],
+)
+
+
+def _modelo(nome: str) -> Gemini:
+    return Gemini(model=nome, retry_options=_RETENTATIVA)
+
 
 _REGRAS_COMUNS = """
 O morador desta conversa é do apartamento {apartamento}. Esse apartamento foi
@@ -41,7 +56,7 @@ assistente_aurora. Responda sempre em português, de forma breve.
 
 especialista_reservas = LlmAgent(
     name="especialista_reservas",
-    model=config.MODELO_ESPECIALISTAS,
+    model=_modelo(config.MODELO_ESPECIALISTAS),
     description=(
         "Reservas das áreas comuns (salão de festas, churrasqueira e quadra):"
         " consultar disponibilidade, reservar, listar e cancelar reservas do"
@@ -76,7 +91,7 @@ Datas sempre no formato AAAA-MM-DD.
 
 especialista_portaria = LlmAgent(
     name="especialista_portaria",
-    model=config.MODELO_ESPECIALISTAS,
+    model=_modelo(config.MODELO_ESPECIALISTAS),
     description=(
         "Portaria: autorizar a entrada de visitantes e listar os visitantes"
         " autorizados do apartamento do morador."
@@ -101,7 +116,7 @@ Você é o especialista de portaria do Residencial Aurora.
 
 especialista_regulamento = LlmAgent(
     name="especialista_regulamento",
-    model=config.MODELO_ESPECIALISTAS,
+    model=_modelo(config.MODELO_ESPECIALISTAS),
     description=(
         "Responde dúvidas sobre o regulamento interno do condomínio (horários,"
         " regras de uso, animais, obras, mudanças, garagem, penalidades etc.)."
@@ -125,7 +140,7 @@ de outros assuntos. Se o regulamento não tratar do tema, diga isso.
 
 assistente_aurora = LlmAgent(
     name="assistente_aurora",
-    model=config.MODELO_PRINCIPAL,
+    model=_modelo(config.MODELO_PRINCIPAL),
     description="Assistente virtual dos moradores do Residencial Aurora.",
     instruction="""
 Você é o assistente virtual dos moradores do Residencial Aurora e conversa com

@@ -18,5 +18,7 @@ DB_SESSOES = DIR_ESTADO / "sessoes.db"
 
 APP_NAME = "residencial_aurora"
 
-MODELO_PRINCIPAL = os.getenv("MODELO_PRINCIPAL", "gemini-3.5-flash")
-MODELO_ESPECIALISTAS = os.getenv("MODELO_ESPECIALISTAS", MODELO_PRINCIPAL)
+# `or` em vez do default do getenv: no .env copiado do exemplo a variável
+# existe, mas vazia.
+MODELO_PRINCIPAL = os.getenv("MODELO_PRINCIPAL") or "gemini-3.6-flash"
+MODELO_ESPECIALISTAS = os.getenv("MODELO_ESPECIALISTAS") or MODELO_PRINCIPAL

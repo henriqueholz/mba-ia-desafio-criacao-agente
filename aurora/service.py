@@ -12,6 +12,7 @@ Aqui fica a ponte entre a API e o Runner do ADK:
 """
 
 import asyncio
+import logging
 from collections import defaultdict
 from typing import Any
 
@@ -19,6 +20,7 @@ from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
 from google.adk.sessions import Session
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from . import config
@@ -27,6 +29,8 @@ from .agents import app
 from .tools import CHAVE_APARTAMENTO
 
 FC_CONFIRMACAO = "adk_request_confirmation"
+
+logger = logging.getLogger(__name__)
 
 
 class SessaoInexistente(Exception):
@@ -103,20 +107,32 @@ def confirmacoes_pendentes(sessao: Session) -> list[dict[str, Any]]:
 
 async def _executar(sessao: Session, mensagem: types.Content) -> dict[str, Any]:
     textos: list[str] = []
-    async for evento in runner.run_async(
-        user_id=sessao.user_id,
-        session_id=sessao.id,
-        new_message=mensagem,
-        run_config=_RUN_CONFIG,
-    ):
-        if evento.partial or evento.author == "user" or not evento.content:
-            continue
-        for parte in evento.content.parts or []:
-            if parte.text and not parte.thought:
-                textos.append(parte.text.strip())
+    try:
+        async for evento in runner.run_async(
+            user_id=sessao.user_id,
+            session_id=sessao.id,
+            new_message=mensagem,
+            run_config=_RUN_CONFIG,
+        ):
+            if evento.partial or evento.author == "user" or not evento.content:
+                continue
+            texto = "".join(
+                p.text for p in evento.content.parts or [] if p.text and not p.thought
+            ).strip()
+            if texto:
+                textos.append(texto)
+    except genai_errors.APIError:
+        # Falha da Gemini API (cota, instabilidade) depois das retentativas.
+        # O que as tools já gravaram continua valendo e as pendências são lidas
+        # da sessão, então a resposta segue o contrato em vez de virar 500.
+        logger.exception("Falha ao chamar o modelo na sessão %s", sessao.id)
+        textos.append(
+            "O assistente está temporariamente indisponível. Tente novamente"
+            " em instantes."
+        )
     atualizada = await obter_sessao(sessao.id)
     return {
-        "resposta": "\n\n".join(t for t in textos if t),
+        "resposta": "\n\n".join(textos),
         "confirmacoes_pendentes": [
             {k: p[k] for k in ("id", "acao", "detalhes")}
             for p in confirmacoes_pendentes(atualizada)
